@@ -1,15 +1,9 @@
 import customtkinter as ctk
-from PIL import Image, ImageDraw
-from io import BytesIO
-import subprocess
-import pytesseract
-import re
 import threading
-from datetime import datetime
-import csv
-import os
-
-from customtkinter import CTkImage
+from soroban_ui import SorobanUI
+from soroban_solver import SorobanSolver
+from screen_capture import ScreenCapture
+from history_manager import HistoryManager
 
 
 class SorobanSolverApp(ctk.CTk):
@@ -19,349 +13,152 @@ class SorobanSolverApp(ctk.CTk):
         self.geometry("700x720")
         self.resizable(False, False)
 
+        # Initialize components
+        self.ui = SorobanUI(self)
+        self.solver = SorobanSolver()
+        self.screen_capture = ScreenCapture()
+        self.history_manager = HistoryManager("solved_history.csv")
+        
+        # State management
         self.last_problem = None
         self.solved_count = 0
         self.solving_active = False
         self.solve_job = None
+        self.processing = False
 
-        self.processing = False  # status flag
-
-        # --- UI Setup ---
-        # Frame for image and problem display
-        top_frame = ctk.CTkFrame(self)
-        top_frame.pack(pady=10)
-
-        # Square container frame for image, fixed size, centered contents
-        img_container = ctk.CTkFrame(top_frame, width=500, height=320, fg_color="#222222", corner_radius=10)
-        img_container.pack(pady=10)
-        img_container.pack_propagate(False)  # prevent resizing
-
-        self.image_label = ctk.CTkLabel(img_container, text="")
-        self.image_label.pack(expand=True)  # center inside the square container
-        # Pre-allocate large image container with blank transparent image (600x300)
-        blank_img = Image.new("RGBA", (600, 300), (255, 255, 255, 0))
-        blank_tk_img = CTkImage(light_image=blank_img, size=(600, 300))
-        self.image_label.configure(image=blank_tk_img)
-        self.image_label.image = blank_tk_img
-
-        self.problem_label = ctk.CTkLabel(top_frame, text="Problem: ", font=("Courier", 16))
-        self.problem_label.pack(pady=5)
-
-        self.result_label = ctk.CTkLabel(top_frame, text="Answer: ", font=("Helvetica", 18, "bold"), text_color="green")
-        self.result_label.pack(pady=5)
-
-        # Frame for buttons and config
-        btn_frame = ctk.CTkFrame(self)
-        btn_frame.pack(pady=5)
-
-        self.toggle_button = ctk.CTkButton(btn_frame, text="Start Solving", command=self.toggle_solving)
-        self.toggle_button.grid(row=0, column=0, padx=5)
-
-        self.clear_button = ctk.CTkButton(btn_frame, text="Clear Log & Reset", command=self.reset)
-        self.clear_button.grid(row=0, column=1, padx=5)
-
-        # Config: threshold slider
-        config_frame = ctk.CTkFrame(self)
-        config_frame.pack(pady=5, fill="x", padx=10)
-        ctk.CTkLabel(config_frame, text="OCR Threshold (brightness cutoff):").pack(side="left", padx=(10,5))
-        self.threshold_slider = ctk.CTkSlider(config_frame, from_=50, to=200, number_of_steps=15, command=self.on_threshold_change)
-        self.threshold_slider.set(100)
-        self.threshold_slider.pack(side="left", fill="x", expand=True, padx=(0,10))
-
-        # Add validation controls
-        validation_frame = ctk.CTkFrame(self)
-        validation_frame.pack(pady=5, fill="x", padx=10)
+        # Setup UI callbacks
+        self._setup_callbacks()
         
-        ctk.CTkLabel(validation_frame, text="Min Numbers Required:").pack(side="left", padx=(10,5))
-        self.min_numbers_slider = ctk.CTkSlider(validation_frame, from_=2, to=5, number_of_steps=3, command=self.on_min_numbers_change)
-        self.min_numbers_slider.set(2)
-        self.min_numbers_slider.pack(side="left", padx=(0,10))
+        # Load history
+        self._load_history()
+
+    def _setup_callbacks(self):
+        """Setup UI event callbacks"""
+        self.ui.set_toggle_callback(self.toggle_solving)
+        self.ui.set_reset_callback(self.reset)
+        self.ui.set_threshold_callback(self.on_threshold_change)
         
-        self.confidence_check = ctk.CTkCheckBox(validation_frame, text="High Confidence Mode")
-        self.confidence_check.pack(side="left", padx=10)
-
-        # Log box with scrollbar
-        log_frame = ctk.CTkFrame(self)
-        log_frame.pack(pady=10)
-
-        self.log_box = ctk.CTkTextbox(log_frame, width=660, height=180, state="disabled", font=("Courier", 12))
-        self.log_box.pack(fill="both", expand=True)
-
         # Keyboard shortcuts
         self.bind('<space>', lambda e: self.toggle_solving())
         self.bind('<Control-l>', lambda e: self.reset())
 
-        # Load history if available
-        self.history_file = "solved_history.csv"
-        self.load_history()
-
     def on_threshold_change(self, value):
-        self.append_log(f"OCR threshold set to {int(value)}")
+        self.ui.append_log(f"OCR threshold set to {int(value)}")
 
     def on_min_numbers_change(self, value):
-        self.append_log(f"Minimum numbers required set to {int(value)}")
-
-    def is_valid_equation_window(self, image, raw_text, numbers):
-        """Enhanced validation to check if we're looking at a valid equation window"""
-        
-        # Check 1: Must have sufficient numbers
-        min_numbers = int(self.min_numbers_slider.get())
-        if len(numbers) < min_numbers:
-            self.append_log(f"Validation failed: Only {len(numbers)} numbers found, need {min_numbers}")
-            return False
-        
-        # Check 2: Text should be mostly mathematical
-        math_chars = sum(1 for c in raw_text if c.isdigit() or c in '+-*/=().')
-        total_chars = len(raw_text.replace(' ', ''))
-        if total_chars > 0:
-            math_ratio = math_chars / total_chars
-            if math_ratio < 0.6:  # At least 60% should be math-related
-                self.append_log(f"Validation failed: Low math ratio {math_ratio:.2f}")
-                return False
-        
-        # Check 3: Look for common non-equation indicators
-        invalid_patterns = [
-            r'challenge', r'level', r'score', r'time', r'menu', 
-            r'start', r'pause', r'resume', r'home', r'settings'
-        ]
-        text_lower = raw_text.lower()
-        for pattern in invalid_patterns:
-            if re.search(pattern, text_lower):
-                self.append_log(f"Validation failed: Found non-equation text '{pattern}'")
-                return False
-        
-        # Check 4: High confidence mode - stricter OCR confidence check
-        if self.confidence_check.get():
-            try:
-                # Get OCR confidence data
-                data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-                confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
-                if confidences:
-                    avg_confidence = sum(confidences) / len(confidences)
-                    if avg_confidence < 70:  # Require high OCR confidence
-                        self.append_log(f"Validation failed: Low OCR confidence {avg_confidence:.1f}")
-                        return False
-            except Exception as e:
-                self.append_log(f"Confidence check failed: {e}")
-                return False
-        
-        # Check 5: Must contain actual mathematical operators
-        if not re.search(r'[+\-×x*/÷]', raw_text):
-            self.append_log("Validation failed: No mathematical operators found")
-            return False
-        
-        return True
+        self.ui.append_log(f"Minimum numbers required set to {int(value)}")
 
     def toggle_solving(self):
         if self.solving_active:
-            # Stop the solving loop
-            if self.solve_job:
-                self.after_cancel(self.solve_job)
-                self.solve_job = None
-            self.solving_active = False
-            self.toggle_button.configure(text="Start Solving")
-            self.append_log("Solving stopped.")
+            self._stop_solving()
         else:
-            # Start the solving loop
-            self.solving_active = True
-            self.toggle_button.configure(text="Stop Solving")
-            self.append_log("Solving started.")
-            self.live_solve_loop()
+            self._start_solving()
 
-    def live_solve_loop(self):
+    def _start_solving(self):
+        """Start the solving loop"""
+        self.solving_active = True
+        self.ui.set_toggle_button_text("Stop Solving")
+        self.ui.append_log("Solving started.")
+        self._live_solve_loop()
+
+    def _stop_solving(self):
+        """Stop the solving loop"""
+        if self.solve_job:
+            self.after_cancel(self.solve_job)
+            self.solve_job = None
+        self.solving_active = False
+        self.ui.set_toggle_button_text("Start Solving")
+        self.ui.append_log("Solving stopped.")
+
+    def _live_solve_loop(self):
+        """Main solving loop"""
         if not self.solving_active:
             return
 
         if self.processing:
-            # Avoid overlapping jobs
-            self.solve_job = self.after(1000, self.live_solve_loop)
+            self.solve_job = self.after(1000, self._live_solve_loop)
             return
 
         def task():
             try:
                 self.processing = True
-                img = self.capture_android_screen()
-                if img is None:
-                    self.append_log("No image captured, retrying...")
-                    return
-                
-                threshold = int(self.threshold_slider.get())
-                operation, numbers, raw_text, boxes = self.extract_problem_from_soroban(img, threshold)
-
-                # Enhanced validation before processing
-                if operation and numbers:
-                    # Extract numeric values for validation
-                    if operation == 'expression':
-                        # For expressions, extract numbers from the string
-                        nums = [float(n) for n in re.findall(r'\d+\.?\d*', numbers)]
-                    else:
-                        nums = numbers
-                    
-                    # Validate if this looks like a real equation window
-                    if not self.is_valid_equation_window(img, raw_text, nums):
-                        return  # Skip this iteration
-                    
-                    current_problem = f"{operation}_{numbers}"
-                    if current_problem != self.last_problem:
-                        result = self.calculate_result(operation, numbers)
-                        if result is not None:
-                            self.solved_count += 1
-                            self.last_problem = current_problem
-                            self.after(0, lambda: self.update_display(img, boxes, raw_text, result))
-                            self.after(0, lambda: self.append_log(f"[{self.solved_count}] {raw_text} = {result}"))
-                            self.save_history(raw_text, result)
-                else:
-                    self.append_log(f"Skipped: {raw_text} (not recognized as equation)")
-                    
+                self._process_single_frame()
             except Exception as e:
-                self.after(0, lambda: self.append_log(f"Error: {e}"))
+                error_message = f"Error: {e}"
+                self.after(0, lambda: self.ui.append_log(error_message))
             finally:
                 self.processing = False
 
         threading.Thread(target=task, daemon=True).start()
-        self.solve_job = self.after(1000, self.live_solve_loop)
+        self.solve_job = self.after(1000, self._live_solve_loop)
 
-    def capture_android_screen(self):
-        try:
-            result = subprocess.run(
-                ['adb', 'exec-out', 'screencap', '-p'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5
-            )
-            if result.returncode != 0 or not result.stdout:
-                raise RuntimeError(f"ADB error: {result.stderr.decode().strip()}")
-            return Image.open(BytesIO(result.stdout))
-        except Exception as e:
-            self.append_log(f"Failed to capture screen: {e}")
-            return None
+    def _process_single_frame(self):
+        """Process a single frame from the screen"""
+        # Capture screen
+        img = self.screen_capture.capture_android_screen()
+        if img is None:
+            self.ui.append_log("No image captured, retrying...")
+            return
+        
+        # Extract problem
+        threshold = int(self.ui.get_threshold())
+        operation, numbers, raw_text, boxes = self.solver.extract_problem_from_soroban(img, threshold)
 
-    def extract_problem_from_soroban(self, image, threshold=100):
-        width, height = image.size
-        cropped = image.crop((0, 0, width, height // 4))
+        # Validate and solve
+        if operation and numbers:
+            if not self.solver.is_valid_equation_window(img, raw_text):
+                return
+            
+            # Check if this is a new problem
+            current_problem = f"{operation}_{numbers}"
+            if current_problem != self.last_problem:
+                result = self.solver.calculate_result(operation, numbers)
+                if result is not None:
+                    self._handle_successful_solve(img, boxes, raw_text, result, current_problem)
+        else:
+            self.ui.append_log(f"Skipped: {raw_text} (not recognized as equation)")
 
-        # Convert to grayscale and binarize with dynamic threshold
-        gray = cropped.convert('L').point(lambda x: 255 if x > threshold else 0, '1')
+    def _extract_numeric_values(self, operation, numbers):
+        """Extract numeric values for validation"""
+        if operation == 'expression':
+            import re
+            return [float(n) for n in re.findall(r'\d+\.?\d*', str(numbers))]
+        return numbers
 
-        data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
-        # Clean OCR text: Remove common OCR confusions
-        cleaned_words = []
-        for w in data['text']:
-            if w.strip():
-                w = w.replace('O', '0').replace('o', '0').replace('l', '1').replace('I', '1')
-                cleaned_words.append(w)
-        text = " ".join(cleaned_words)
-
-        boxes = []
-        for i, word in enumerate(data['text']):
-            if word.strip():
-                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                boxes.append((x, y, x + w, y + h))
-
-        # Parse tokens - include + - * / ( ) and digits, decimals
-        mixed_pattern = r'[\d\.\(\)]+|[+\-−×x*/÷()]'
-        tokens = re.findall(mixed_pattern, text)
-
-        expr = "".join(tokens).replace('×', '*').replace('x', '*').replace('−', '-').replace('÷', '/')
-
-        if re.fullmatch(r'[\d\.\+\-\*/\(\) ]+', expr):
-            try:
-                # We return 'expression' operation type with the expression string for evaluation
-                return 'expression', expr, text.strip(), boxes
-            except:
-                pass
-
-        # fallback: try to get at least two numbers for addition (very basic)
-        nums = [float(n) for n in re.findall(r'\d+\.?\d*', text)]
-        if len(nums) >= 2:
-            return 'add', nums, text.strip(), boxes
-
-        return None, None, text.strip(), boxes
-
-    def calculate_result(self, operation, numbers):
-        try:
-            if operation == 'expression':
-                result = eval(numbers, {"__builtins__": None}, {})
-                # Round floats sensibly
-                if isinstance(result, float) and not result.is_integer():
-                    return round(result, 4)
-                return int(result)
-
-            if operation == 'add':
-                return sum(numbers)
-        except Exception:
-            return None
-        return None
-
-    def update_display(self, image, boxes, raw_text, result):
-        width, height = image.size
-        cropped = image.crop((0, 0, width, height // 4)).convert("RGBA")
-        overlay = Image.new('RGBA', cropped.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(overlay)
-        for box in boxes:
-            draw.rectangle(box, outline="red", width=2)
-        highlighted = Image.alpha_composite(cropped, overlay)
-
-        full_img = image.convert("RGBA")
-        full_img.paste(highlighted, (0, 0))
-
-        resized = full_img.resize((500, 320))
-        tk_img = CTkImage(light_image=resized, size=(520, 320))
-        self.image_label.configure(image=tk_img)
-        self.image_label.image = tk_img
-
-        self.problem_label.configure(text=f"Problem: {raw_text}")
-        self.result_label.configure(text=f"Answer: {result}")
-
+    def _handle_successful_solve(self, img, boxes, raw_text, result, current_problem):
+        """Handle a successful solve"""
+        self.solved_count += 1
+        self.last_problem = current_problem
+        
+        # Update UI
+        self.after(0, lambda: self.ui.update_display(img, boxes, raw_text, result))
+        self.after(0, lambda: self.ui.append_log(f"[{self.solved_count}] {raw_text} = {result}"))
+        
+        # Save to history
+        self.history_manager.save_history(raw_text, result)
+        
+        # Console output
         print(f"[{self.solved_count}] Solved: {raw_text} = {result}")
 
-    def append_log(self, text):
-        timestamp = datetime.now().strftime("%b %d %I:%M:%S %p")
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", f"[{timestamp}] {text}\n")
-        self.log_box.configure(state="disabled")
-        self.log_box.see("end")
-
     def reset(self):
+        """Reset the application state"""
         if self.solving_active:
-            self.toggle_solving()  # stop if running
+            self.toggle_solving()
+        
         self.last_problem = None
         self.solved_count = 0
-        self.problem_label.configure(text="Problem: ")
-        self.result_label.configure(text="Answer: ")
-        self.image_label.configure(image=None, text="")
-        self.image_label.image = None
-        self.log_box.configure(state="normal")
-        self.log_box.delete('1.0', 'end')
-        self.log_box.configure(state="disabled")
-        self.append_log("Reset complete.")
+        self.ui.reset_display()
+        self.ui.append_log("Reset complete.")
 
-    def save_history(self, problem, result):
-        try:
-            file_exists = os.path.isfile(self.history_file)
-            with open(self.history_file, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                if not file_exists:
-                    writer.writerow(['Problem', 'Result'])
-                writer.writerow([problem, result])
-        except Exception as e:
-            self.append_log(f"Failed to save history: {e}")
+    def _load_history(self):
+        """Load solving history"""
+        history_entries = self.history_manager.load_history()
+        for problem, result in history_entries:
+            self.ui.append_log(f"History: {problem} = {result}")
+        
+        if history_entries:
+            self.ui.append_log(f"Loaded history ({len(history_entries)} entries)")
 
-    def load_history(self):
-        if os.path.isfile(self.history_file):
-            try:
-                with open(self.history_file, 'r', encoding='utf-8') as f:
-                    reader = csv.reader(f)
-                    header = next(reader, None)  # skip header
-                    count = 0
-                    for row in reader:
-                        if len(row) >= 2:
-                            problem, result = row
-                            self.append_log(f"History: {problem} = {result}")
-                            count += 1
-                    self.append_log(f"Loaded history ({count} entries)")
-            except Exception as e:
-                self.append_log(f"Failed to load history: {e}")
 
 if __name__ == "__main__":
     app = SorobanSolverApp()
