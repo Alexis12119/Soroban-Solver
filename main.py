@@ -30,6 +30,8 @@ class SorobanSolverApp(ctk.CTk):
         self._load_history()
 
     def _setup_callbacks(self):
+        self.bind('<Control-d>', lambda e: self.toggle_division_mode())
+
         """Setup UI event callbacks"""
         self.ui.set_toggle_callback(self.toggle_solving)
         self.ui.set_reset_callback(self.reset)
@@ -42,14 +44,22 @@ class SorobanSolverApp(ctk.CTk):
     def on_threshold_change(self, value):
         self.ui.append_log(f"OCR threshold set to {int(value)}")
 
-    def on_min_numbers_change(self, value):
-        self.ui.append_log(f"Minimum numbers required set to {int(value)}")
-
     def toggle_solving(self):
         if self.solving_active:
             self._stop_solving()
         else:
             self._start_solving()
+
+    def on_min_numbers_change(self, value):
+        self.ui.append_log(f"Minimum numbers required set to {int(value)}")
+
+    def toggle_division_mode(self):
+        current_state = self.ui.get_division_mode()
+        if not current_state:
+            self.ui.division_mode_switch.select()
+        else:
+            self.ui.division_mode_switch.deselect()
+        self.ui.append_log(f"Division mode toggled to {not current_state}")
 
     def _start_solving(self):
         """Start the solving loop"""
