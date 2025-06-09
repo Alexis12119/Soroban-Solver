@@ -5,7 +5,6 @@ from soroban_solver import SorobanSolver
 from screen_capture import ScreenCapture
 from history_manager import HistoryManager
 
-
 class SorobanSolverApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -103,13 +102,11 @@ class SorobanSolverApp(ctk.CTk):
         # Extract problem
         threshold = int(self.ui.get_threshold())
         operation, numbers, raw_text, boxes = self.solver.extract_problem_from_soroban(img, threshold)
-
         # Validate and solve
         if operation and numbers:
             if not self.solver.is_valid_equation_window(img, raw_text):
                 return
             
-            # Check if this is a new problem
             current_problem = f"{operation}_{numbers}"
             if current_problem != self.last_problem:
                 result = self.solver.calculate_result(operation, numbers)
