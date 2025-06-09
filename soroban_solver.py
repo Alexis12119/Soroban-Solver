@@ -15,7 +15,7 @@ class SorobanSolver:
         gray = cropped.convert('L').point(lambda x: 255 if x > threshold else 0, '1')
 
         # Get OCR data
-        data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
+        data = pytesseract.image_to_data(gray, config='--oem 3 --psm 7', output_type=pytesseract.Output.DICT)
         print("OCR Data: ", data)
         
         # Clean OCR text: Remove common OCR confusions
@@ -62,9 +62,9 @@ class SorobanSolver:
         # If full expression fails, fallback to binary operator matching
         binary_ops = [
             (r'(\d+\.?\d*)\s*[/÷:]\s*(\d+\.?\d*)', 'division'),
-            (r'(\d+\.?\d*)\s*[\+\−-]\s*(\d+\.?\d*)', 'addition'),
+            (r'(\d+\.?\d*)\s*[\+\+]\s*(\d+\.?\d*)', 'addition'),  # only plus sign for addition
             (r'(\d+\.?\d*)\s*[*×x]\s*(\d+\.?\d*)', 'multiplication'),
-            (r'(\d+\.?\d*)\s*[\-−]\s*(\d+\.?\d*)', 'subtraction'),  # added explicit subtraction
+            (r'(\d+\.?\d*)\s*[-−]\s*(\d+\.?\d*)', 'subtraction'),  # subtraction pattern for minus signs
         ]
         for pattern, op_type in binary_ops:
             match = re.search(pattern, cleaned)
