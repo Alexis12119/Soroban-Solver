@@ -1,0 +1,30 @@
+# GUI Framework
+customtkinter>=5.2.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# OCR (Optical Character Recognition)
+pytesseract>=0.3.10
+
+# Standard library modules (included with Python)
+# - subprocess (built-in)
+# - threading (built-in) 
+# - datetime (built-in)
+# - csv (built-in)
+# - os (built-in)
+# - re (built-in)
+# - io (built-in)
+
+# Note: You'll also need to install Tesseract OCR engine separately:
+# Arch Linux: sudo pacman -S tesseract
+# Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+# macOS: brew install tesseract
+# Ubuntu/Debian: sudo apt install tesseract-ocr
+# 
+# And ensure ADB (Android Debug Bridge) is installed and in your PATH:
+# Arch Linux: sudo pacman -S android-tools
+# Download Android SDK Platform Tools or install via:
+# Windows: choco install adb (with Chocolatey)
+# macOS: brew install android-platform-tools
+# Ubuntu/Debian: sudo apt install android-tools-adb
