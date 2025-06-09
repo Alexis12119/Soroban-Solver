@@ -37,8 +37,6 @@ class SorobanSolver:
                 filtered_data['height'].append(data['height'][i])
         data = filtered_data
 
-        print("OCR Data: ", data)
-
         # Clean OCR text: Remove common OCR confusions
         cleaned_words = []
         for w in data['text']:
