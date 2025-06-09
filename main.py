@@ -8,9 +8,7 @@ from history_manager import HistoryManager
 class SorobanSolverApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("📱 Fast Soroban Solver")
-        self.geometry("700x720")
-        self.resizable(False, False)
+        self.title("Fast Soroban Solver")
 
         # Initialize components
         self.ui = SorobanUI(self)
