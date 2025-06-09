@@ -6,7 +6,7 @@ class SorobanSolver:
     def __init__(self):
         pass
 
-    def extract_problem_from_soroban(self, image, threshold=100):
+    def extract_problem_from_soroban(self, image, threshold=100, division_mode=False):
         """Extract mathematical problem from soroban app screen"""
         width, height = image.size
         cropped = image.crop((0, 0, width, height // 4))
@@ -16,8 +16,29 @@ class SorobanSolver:
 
         # Get OCR data
         data = pytesseract.image_to_data(gray, config='--oem 3 --psm 7', output_type=pytesseract.Output.DICT)
+
+        # Filter out back button
+        filtered_data = {
+            'text': [],
+            'left': [],
+            'top': [],
+            'width': [],
+            'height': []
+        }
+        width, height = image.size
+        back_button_x_threshold = width / 5  # Adjust as needed
+        for i, text in enumerate(data['text']):
+            x = data['left'][i]
+            if text != '<' or x > back_button_x_threshold:
+                filtered_data['text'].append(text)
+                filtered_data['left'].append(data['left'][i])
+                filtered_data['top'].append(data['top'][i])
+                filtered_data['width'].append(data['width'][i])
+                filtered_data['height'].append(data['height'][i])
+        data = filtered_data
+
         print("OCR Data: ", data)
-        
+
         # Clean OCR text: Remove common OCR confusions
         cleaned_words = []
         for w in data['text']:
@@ -45,14 +66,31 @@ class SorobanSolver:
                 x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
                 boxes.append((x, y, x + w, y + h))
 
+        # Clean up boxes that are zero size
+        boxes = [box for box in boxes if (box[2] - box[0]) > 0 and (box[3] - box[1]) > 0 ]
+
         # Parse mathematical expression
-        operation, numbers = self._parse_mathematical_expression(text)
+        operation, numbers = self._parse_mathematical_expression(text, division_mode)
         
         return operation, numbers, text.strip(), boxes
 
-    def _parse_mathematical_expression(self, text):
+    def _parse_mathematical_expression(self, text, division_mode=False):
         """Parse mathematical expression from OCR text"""
         cleaned = text.replace('×', '*').replace('x', '*').replace('−', '-').replace('÷', '/')
+
+        # If division mode is enabled, force division
+        if division_mode:
+            binary_ops = [
+                (r'(\d+\.?\d*)\s*[/÷:]\s*(\d+\.?\d*)', 'division'),
+                (r'(\d+\.?\d*)\s*[+\+]\s*(\d+\.?\d*)', 'division'),  # Treat plus as division
+                (r'(\d+\.?\d*)\s*[*×x]\s*(\d+\.?\d*)', 'division'),
+                (r'(\d+\.?\d*)\s*[-−]\s*(\d+\.?\d*)', 'division'),  # subtraction pattern for minus signs
+            ]
+            for pattern, op_type in binary_ops:
+                match = re.search(pattern, cleaned)
+                if match:
+                    nums = [float(match.group(1)), float(match.group(2))]
+                    return op_type, nums
 
         # Try parsing full expression first
         expr = "".join(re.findall(r'[\d\.\+\-\*/\(\)]', cleaned))

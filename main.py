@@ -101,7 +101,7 @@ class SorobanSolverApp(ctk.CTk):
         
         # Extract problem
         threshold = int(self.ui.get_threshold())
-        operation, numbers, raw_text, boxes = self.solver.extract_problem_from_soroban(img, threshold)
+        operation, numbers, raw_text, boxes = self.solver.extract_problem_from_soroban(img, threshold, division_mode=self.ui.get_division_mode())
         # Validate and solve
         if operation and numbers:
             if not self.solver.is_valid_equation_window(img, raw_text):

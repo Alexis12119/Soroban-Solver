@@ -63,6 +63,7 @@ class SorobanUI:
     def _create_config_controls(self):
         """Create configuration controls"""
         config_frame = ctk.CTkFrame(self.parent)
+        config_frame = ctk.CTkFrame(self.parent)
         config_frame.pack(pady=5, fill="x", padx=10)
         
         ctk.CTkLabel(config_frame, text="OCR Threshold (brightness cutoff):").pack(
@@ -72,6 +73,8 @@ class SorobanUI:
                                             number_of_steps=15)
         self.threshold_slider.set(100)
         self.threshold_slider.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.division_mode_switch = ctk.CTkSwitch(config_frame, text="Division Mode")
+        self.division_mode_switch.pack(side="left", padx=(0, 10))
 
     def _create_log_display(self):
         """Create log display area"""
@@ -91,6 +94,9 @@ class SorobanUI:
         
     def set_threshold_callback(self, callback):
         self.threshold_slider.configure(command=callback)
+    def get_division_mode(self):
+        return self.division_mode_switch.get()
+
         
     # UI state getters
     def get_threshold(self):
