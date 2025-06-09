@@ -93,6 +93,11 @@ class SorobanSolverApp(ctk.CTk):
 
     def _process_single_frame(self):
         """Process a single frame from the screen"""
+        # Check if a device is connected
+        if not self.screen_capture.is_device_connected():
+            self.ui.append_log("No Android device found. Please connect a device.")
+            return
+
         # Capture screen
         img = self.screen_capture.capture_android_screen()
         if img is None:
