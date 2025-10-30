@@ -110,8 +110,9 @@ class SorobanSolver:
 
         return None, None
 
-    def is_valid_equation_window(self, image, raw_text):
+    def is_valid_equation_window(self, raw_text):
         """Enhanced validation to check if we're looking at a valid equation window"""
+        print("Raw text: ", raw_text)
         
         # Check 2: Text should be mostly mathematical
         math_chars = sum(1 for c in raw_text if c.isdigit() or c in '+-*/=().')
